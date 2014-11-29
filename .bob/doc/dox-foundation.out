@@ -1,0 +1,13 @@
+[ 'lib/bot.js',
+  'lib/cli/jenkins.js',
+  'lib/cli/job.js',
+  'lib/cli/util.js',
+  'lib/cli/view.js',
+  'lib/cli.js',
+  'lib/consolestream.js',
+  'lib/http/jenkins.js',
+  'lib/http/job.js',
+  'lib/http/util.js',
+  'lib/http/view.js',
+  'lib/irc.js',
+  'lib/jenkins.js' ]

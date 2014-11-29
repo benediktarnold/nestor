@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Plato - lib/jenkins.js</title>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="">
+  <meta name="author" content="">
+
+  <!--[if lt IE 9]>
+  <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+  <![endif]-->
+
+  <link href="../../assets/css/vendor/morris.css" rel="stylesheet">
+  <link href="../../assets/css/vendor/bootstrap.css" rel="stylesheet">
+  <link href="../../assets/css/vendor/font-awesome.css" rel="stylesheet">
+  <link href="../../assets/css/vendor/codemirror.css" rel="stylesheet">
+  <link href="../../assets/css/plato.css" rel="stylesheet">
+  <link href="../../assets/css/plato-file.css" rel="stylesheet">
+
+</head>
+
+<body>
+
+<div class="navbar navbar-fixed-top">
+  <div class="container">
+    <a class="navbar-brand" href="http://github.com/es-analysis/plato">Plato on Github</a>
+    <ul class="nav navbar-nav">
+      <li>
+        <a href="../../index.html">Report Home</a>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<div class="jumbotron">
+  <div class="container">
+    <h1>lib/jenkins.js</h1>
+  </div>
+</div>
+
+<div class="container aggregate-stats">
+  <div class="row">
+    <div class="col-md-6">
+      <h2 class="header">Maintainability <a href="http://blogs.msdn.com/b/codeanalysis/archive/2007/11/20/maintainability-index-range-and-meaning.aspx"><i class="icon icon-info-sign" rel="popover" data-placement="top" data-trigger="hover" data-content="A value between 0 and 100 that represents the relative ease of maintaining the code. A high value means better maintainability." data-original-title="Maintainability Index"  data-container="body"></i></a></h2>
+      <p class="stat">72.37</p>
+    </div>
+    <div class="col-md-6">
+      <h2 class="header">Lines of code <i class="icon icon-info-sign" rel="popover" data-placement="top" data-trigger="hover" data-content="Source Lines of Code / Logical Lines of Code" data-original-title="SLOC/LSLOC" data-container="body"></i></h2>
+      <p class="stat">512</p>
+    </div>
+  </div>
+  <div class="row historical">
+    <div class="col-md-6">
+      <p id="chart_historical_maint" class="chart"></p>
+    </div>
+    <div class="col-md-6">
+      <p id="chart_historical_sloc" class="chart"></p>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-6">
+      <h2 class="header">Difficulty  <a href="http://en.wikipedia.org/wiki/Halstead_complexity_measures"><i class="icon icon-info-sign" rel="popover" data-placement="top" data-trigger="hover" data-content="The difficulty measure is related to the difficulty of the program to write or understand." data-original-title="Difficulty" data-container="body"></i></a></h2>
+      <p class="stat">45.86</p>
+    </div>
+    <div class="col-md-6">
+      <h2 class="header">Estimated Errors  <a href="http://en.wikipedia.org/wiki/Halstead_complexity_measures"><i class="icon icon-info-sign" rel="popover" data-placement="top" data-trigger="hover" data-content="Halstead's delivered bugs is an estimate for the number of errors in the implementation." data-original-title="Delivered Bugs" data-container="body"></i></a></h2>
+      <p class="stat">4.90</p>
+    </div>
+  </div>
+</div>
+
+<div class="container charts">
+  <div class="row">
+    <h2 class="header">Function weight</h2>
+  </div>
+  <div class="row">
+    <div class="col-md-6">
+      <h3 class="chart-header">By Complexity <a href="http://en.wikipedia.org/wiki/Cyclomatic_complexity"><i class="icon icon-info-sign" rel="popover" data-placement="top" data-trigger="hover" data-content="This metric counts the number of distinct paths through a block of code. Lower values are better." data-original-title="Cyclomatic Complexity" data-container="body"></i></a></h3>
+      <div id="fn-by-complexity" class="stat"></div>
+    </div>
+    <div class="col-md-6">
+      <h3 class="chart-header">By SLOC  <i class="icon icon-info-sign" rel="popover" data-placement="top" data-trigger="hover" data-content="Source Lines of Code / Logical Lines of Code" data-original-title="SLOC/LSLOC" data-container="body"></i></h3>
+      <div id="fn-by-sloc" class="stat"></div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="row">
+    <textarea id="file-source" class="col-md-12">var _ = require(&#039;lodash&#039;),
+  async = require(&#039;async&#039;),
+  commander = require(&#039;commander&#039;),
+  ConsoleStream = require(&#039;./consolestream&#039;),
+  cron = require(&#039;cron&#039;),
+  dgram = require(&#039;dgram&#039;),
+  feedparser = require(&#039;feedparser&#039;),
+  fs = require(&#039;fs&#039;),
+  p = require(&#039;path&#039;),
+  req = require(&#039;bagofrequest&#039;),
+  request = require(&#039;request&#039;),
+  text = require(&#039;bagoftext&#039;),
+  xml2js = require(&#039;xml2js&#039;),
+  moment = require(&#039;moment&#039;);
+
+var jenkins = require(&#039;./http/jenkins&#039;);
+var job     = require(&#039;./http/job&#039;);
+var view    = require(&#039;./http/view&#039;);
+
+text.initLocales(__dirname);
+
+/**
+ * class Jenkins
+ *
+ * @param {String} url: Jenkins URL, fallback to JENKINS_URL environment variable, otherwise default to http://localhost:8080
+ */
+function Jenkins(url) {
+
+  function _authFail(result, cb) {
+    cb(new Error(text.__(&#039;Authentication failed - incorrect username and/or password in Jenkins URL&#039;)));
+  }
+
+  function _authRequire(result, cb) {
+    cb(new Error(text.__(&#039;Jenkins requires authentication - set username and password in Jenkins URL&#039;)));
+  }
+
+  this.url = url || process.env.JENKINS_URL || &#039;http://localhost:8080&#039;;
+  this.opts = {
+    handlers: {
+      401: _authFail,
+      403: _authRequire
+    }
+  };
+}
+
+/**
+ * Build job with optional parameters.
+ *
+ * @param {String} jobName: Jenkins job name
+ * @param {String} params: build parameter (for Jenkins parameterised build) in format: key1=value1&amp;key2=value2
+ * @param {Function} cb: standard cb(err, result) callback
+ */
+Jenkins.prototype.build = function (jobName, params, cb) {
+  var json = { parameter: [] },
+    method = &#039;post&#039;;
+
+  if (params) {
+    params.split(&#039;&amp;&#039;).forEach(function (param) {
+      var keyVal = param.split(&#039;=&#039;);
+      json.parameter.push({ name: keyVal[0], value: keyVal[1] });
+    });
+  }
+  this.opts.queryStrings = { token: &#039;nestor&#039;, json: JSON.stringify(json) };
+
+  function _success(result, cb) {
+    cb();
+  }
+
+  function _notFound(result, cb) {
+    cb(new Error(text.__(&#039;Job %s does not exist&#039;, jobName)));
+  }
+
+  function _paramsRequire(result, cb) {
+    cb(new Error(text.__(&#039;Job %s requires build parameters&#039;, jobName)));
+  }
+
+  this.opts.handlers[200] = _success; // backward compatibility (&lt; v1.5xx)
+  this.opts.handlers[201] = _success;
+  this.opts.handlers[404] = _notFound;
+  this.opts.handlers[405] = _paramsRequire; // backward compatibility (&lt; v1.5xx)
+
+  req.request(method, this.url + &#039;/job/&#039; + jobName + &#039;/build&#039;, this.opts, cb);
+};
+
+/**
+ * Trigger multiple jobs based on criteria.
+ *
+ * @param {Object} criteria: job criteria to build
+ *   - status: build status
+ * @param {Function} cb: standard cb(err, result) callback
+ */
+Jenkins.prototype.filteredBuild = function (criteria, cb) {
+  criteria = criteria || {};
+  var self = this;
+
+  function filter(item) {
+    return Object.keys(criteria).length &gt; 0 ?
+        item.status === criteria.status :
+        true;
+  }
+
+  function iterator(item, cb) {
+    self.build(item.name, null, function (err, result) {
+      if (!err) {
+        console.log(text.__(&#039;Job %s was started successfully&#039;), item.name);
+      }
+      cb(err);
+    });
+  }
+
+  function dashboardCb(err, data) {
+    if (!err) {
+      async.each(data.filter(filter), iterator, cb);
+    } else {
+      cb(err);
+    }
+  }
+  this.dashboard(dashboardCb);
+};
+
+/**
+ * Read a Jenkins job console output as a readable stream.
+ * Jenkins uses the following headers:
+ * - x-more-data to determine whether there are still more content coming through
+ * - x-text-size to determine the starting point of progressive text output
+ *
+ * @param {String} jobName: Jenkins job name
+ * @param {Object} opts: optional interval in milliseconds
+ * @param {Function} cb: standard cb(err, result) callback
+ * @return {ConsoleStream} readable console output stream
+ */
+Jenkins.prototype.consoleStream = function(jobName, opts, cb) {
+  if (!cb &amp;&amp; typeof opts === &#039;function&#039;) {
+    cb = opts;
+    opts = undefined;
+  }
+
+  const INTERVAL = 1000;
+  var url = this.url + &#039;/job/&#039; + jobName + &#039;/lastBuild/logText/progressiveText&#039;,
+    stream = new ConsoleStream(),
+    self = this;
+
+  this.opts.queryStrings = { start: 0 }; // the first chunk
+
+  function _success(result, cb) {
+    if (result.body) {
+      stream.emit(&#039;data&#039;, result.body);
+    }
+    // stream while there are more data
+    async.whilst(
+      function () {
+        return result.headers[&#039;x-more-data&#039;] === &#039;true&#039;;
+      },
+      function (cb) {
+        var params = {
+            url: url,
+            qs: { start: parseInt(result.headers[&#039;x-text-size&#039;], 10) }
+          },
+          envProxy = req.proxy(url);
+        if (envProxy) {
+          params.proxy = envProxy;
+        }
+        request.get(params, function (err, _result) {
+          if (err) {
+            cb(err);
+          } else {
+            result = _result;
+            if (_result.body) {
+              stream.emit(&#039;data&#039;, _result.body);
+            }
+            setTimeout(cb, (opts &amp;&amp; opts.interval) ? opts.interval : INTERVAL);
+          }
+        });
+      },
+      function (err) {
+        stream.emit(&#039;end&#039;);
+        cb(err);
+      }
+    );
+  }
+
+  function _notFound(result, cb) {
+    cb(new Error(text.__(&#039;Job %s does not exist&#039;, jobName)));
+  }
+
+  this.opts.handlers[200] = _success;
+  this.opts.handlers[404] = _notFound;
+
+  process.nextTick(function () {
+    req.request(&#039;get&#039;, url, self.opts, cb);
+  });
+
+  return stream;
+};
+
+/**
+ * Display build progress console output.
+ *
+ * @param {String} jobName: Jenkins job name
+ * @param {Object} opts: optional interval in milliseconds
+ * @param {Function} cb: standard cb(err, result) callback
+ */
+Jenkins.prototype.console = function (jobName, opts, cb) {
+  var stream = this.consoleStream(jobName, opts, cb);
+  stream.pipe(process.stdout, { end: false });
+};
+
+/**
+ * Retrieve all jobs as displayed on Jenkins dashboard.
+ * Result is an array containing objects with status and name properties
+ * If viewName option is specified, then use the view jobs.
+ * Otherwise defaults to all jobs.
+ *
+ * @param {Object} opts: optional
+ * - viewName: Jenkins view name
+ * @param {Function} cb: standard cb(err, result) callback
+ */
+Jenkins.prototype.dashboard = function (opts, cb) {
+  // backward compatibility v0.1.9 and older
+  if (!cb) {
+    cb = opts;
+    opts = {};
+  }
+
+  var self = this,
+    url = this.url + ((opts.viewName) ? &#039;/view/&#039; + opts.viewName: &#039;&#039;) + &#039;/api/json&#039;;
+
+  function _success(result, cb) {
+    var jobs = JSON.parse(result.body).jobs,
+      data = [];
+    if (!_.isEmpty(jobs)) {
+      jobs.forEach(function (job) {
+        data.push({ status: self._statusByColor(job.color), name: job.name });
+      });
+    }
+    cb(null, data);    
+  }
+
+  this.opts.handlers[200] = _success;
+
+  req.request(&#039;get&#039;, url, this.opts, cb);
+};
+
+/**
+ * Discover whether there&#039;s a Jenkins instance running on the specified host.
+ *
+ * @param {String} host: hostname
+ * @param {Function} cb: standard cb(err, result) callback
+ */
+Jenkins.prototype.discover = function (host, cb) {
+
+  const TIMEOUT = 5000;
+
+  var socket = dgram.createSocket(&#039;udp4&#039;),
+    buffer = new Buffer(text.__(&#039;Long live Jenkins!&#039;)),
+    parser = new xml2js.Parser();
+
+  socket.on(&#039;error&#039;, function (err) {
+    socket.close();
+    cb(err);
+  });
+
+  socket.on(&#039;message&#039;, function (result) {
+    socket.close();
+    parser.addListener(&#039;end&#039;, function (result) {
+      cb(null, result);
+    });
+    parser.parseString(result);
+  });
+
+  socket.send(buffer, 0, buffer.length, 33848, host, function (err, result) {
+    if (err) {
+      socket.close();
+      cb(err);
+    }
+  });
+  
+  setTimeout(function () {
+    cb(new Error(text.__(&#039;Unable to find any Jenkins instance on %s&#039;, host)));
+  }, TIMEOUT);
+};
+
+/**
+ * Retrieve executors status grouped by Jenkins node (master and all slaves).
+ *
+ * @param {Function} cb: standard cb(err, result) callback
+ */
+Jenkins.prototype.executor = function (cb) {
+
+  this.opts.queryStrings = { depth: 1 };
+
+  function _success(result, cb) {
+    var computers = JSON.parse(result.body).computer,
+      data = {};
+    computers.forEach(function (computer) {
+      data[computer.displayName] = { executors: [] };
+      var idleCount = 0,
+        activeCount = 0;
+      computer.executors.forEach(function (executor) {
+        data[computer.displayName].executors.push({
+          idle: executor.idle,
+          stuck: executor.likelyStuck,
+          progress: executor.progress,
+          name: (!executor.idle) ?
+            executor.currentExecutable.url.replace(/.*\/job\//, &#039;&#039;).replace(/\/.*/, &#039;&#039;) :
+            undefined
+        });
+        if (executor.idle) {
+          idleCount += 1;
+        } else {
+          activeCount += 1;
+        }
+      });
+      var summary = [];
+      if (activeCount &gt; 0) {
+        summary.push(text.__(&#039;%d active&#039;, activeCount)); 
+      }
+      if (idleCount &gt; 0) {
+        summary.push(text.__(&#039;%d idle&#039;, idleCount));
+      }
+      data[computer.displayName].summary = summary.join(&#039;, &#039;);
+    });
+    cb(null, data);
+  }
+
+  this.opts.handlers[200] = _success;
+
+  req.request(&#039;get&#039;, this.url + &#039;/computer/api/json&#039;, this.opts, cb);
+};
+
+/**
+ * Retrieve job status and health reports.
+ * An error will be passed when the job does not exist.
+ *
+ * @param {String} name: Jenkins job name
+ * @param {Function} cb: standard cb(err, result) callback
+ */
+Jenkins.prototype.job = function (name, cb) {
+
+  var self = this;
+
+  function _success(result, cb) {
+    var _job = JSON.parse(result.body),
+      data = {};
+    data.status = self._statusByColor(_job.color);
+    data.reports = [];
+    _job.healthReport.forEach(function (report) {
+      data.reports.push(report.description);
+    });
+    cb(null, data);
+  }
+
+  function _notFound(result, cb) {
+    cb(new Error(text.__(&#039;Job %s does not exist&#039;, name)));
+  }
+
+  this.opts.handlers[200] = _success;
+  this.opts.handlers[404] = _notFound;
+
+  req.request(&#039;get&#039;, this.url + &#039;/job/&#039; + name + &#039;/api/json&#039;, this.opts, cb);
+};
+
+/**
+ * Retrieve status and date for the most recently completed build.
+ *
+ * @param {String} name: Jenkins job name
+ * @param {Function} cb: standard cb(err, result) callback
+ */
+Jenkins.prototype.last = function (name, cb) {
+
+    function _success(result, cb) {
+        var _build = JSON.parse(result.body),
+            buildMoment,
+            data = {
+                building: _build.building,
+                result: _build.result
+            };
+
+        if (_build.building &gt; 0) {
+            buildMoment = moment(_build.timestamp);
+            data.buildDateDistance = &quot;Started &quot; + buildMoment.fromNow();
+
+        } else {
+            buildMoment = moment(_build.timestamp + _build.duration);
+            data.buildDateDistance = &quot;Ended &quot; + buildMoment.fromNow();
+        }
+
+        data.buildDate = buildMoment.toISOString();
+
+        cb(null, data);
+    }
+
+    function _notFound(result, cb) {
+        cb(new Error(text.__(&#039;No build could be found for job %s&#039;, name)));
+    }
+
+    this.opts.handlers[200] = _success;
+    this.opts.handlers[404] = _notFound;
+
+    req.request(&#039;get&#039;, this.url + &#039;/job/&#039; + name + &#039;/lastBuild/api/json&#039;, this.opts, cb);
+};
+
+Jenkins.prototype.queue           = jenkins.queue;
+Jenkins.prototype.version         = jenkins.readVersion;
+
+Jenkins.prototype.createJob       = job.create;
+Jenkins.prototype.readJob         = job.read;
+Jenkins.prototype.updateJob       = job.update;
+Jenkins.prototype.deleteJob       = job.delete;
+//Jenkins.prototype.buildJob        = job.build;
+Jenkins.prototype.stopJob         = job.stop;
+Jenkins.prototype.enableJob       = job.enable;
+Jenkins.prototype.disableJob      = job.disable;
+Jenkins.prototype.copyJob         = job.copy;
+Jenkins.prototype.fetchJobConfig  = job.fetchConfig;
+
+Jenkins.prototype.createView      = view.create;
+Jenkins.prototype.updateView      = view.update;
+Jenkins.prototype.fetchViewConfig = view.fetchConfig;
+
+/**
+ * Retrieve Jenkins feed or job feed.
+ * If jobName option is specified, then use the job feed.
+ * If viewName option is specified, then use the view feed.
+ * Otherwise defaults to all feed.
+ *
+ * @param {Object} opts: optional
+ * - jobName: Jenkins job name
+ * - viewName: Jenkins view name
+ * @param {Function} cb: standard cb(err, result) callback
+ */
+Jenkins.prototype.feed = function (opts, cb) {
+  opts = opts || {};
+  var url;
+  if (opts.jobName) {
+    url = this.url + &#039;/job/&#039; + opts.jobName + &#039;/rssAll&#039;;
+  } else if (opts.viewName) {
+    url = this.url + &#039;/view/&#039; + opts.viewName + &#039;/rssAll&#039;;
+  } else {
+    url = this.url + &#039;/rssAll&#039;;
+  }
+  feedparser.parseUrl(url, function (err, meta, articles) {
+    cb(err, articles);
+  });
+};
+
+/**
+ * Monitor Jenkins latest build status on a set interval.
+ *
+ * @param {Object} opts: optional
+ * - jobName: Jenkins job name
+ * - viewName: Jenkins view name
+ * - schedule: cron scheduling definition in standard * * * * * * format, default: 0 * * * * * (every minute)
+ * @param {Function} cb: standard cb(err, result) callback
+ */
+Jenkins.prototype.monitor = function (opts, cb) {
+  var self = this;
+
+  function _notify() {
+    self.dashboard(opts, function (err, result) {
+      if (!err) {
+        result = self._statusByName({ jobName: opts.jobName }, result);
+      }
+      cb(err, result);
+    });
+  }
+
+  _notify();
+  new cron.CronJob(opts.schedule || &#039;0 * * * * *&#039;, _notify).start();
+};
+
+Jenkins.prototype._statusByColor = function (color) {
+
+  const STATUS = {  
+    blue: &#039;OK&#039;,
+    green: &#039;OK&#039;,
+    grey: &#039;ABORTED&#039;,
+    red: &#039;FAIL&#039;,
+    yellow: &#039;WARN&#039;
+  };
+
+  // Jenkins color value can contain either a color, color_anime, or status in job.color field,
+  // hence to get color/status value out of the mix we need to remove the postfix _anime,
+  // _anime postfix only exists on a job currently being built
+  color = color.replace(/_anime/, &#039;&#039;);
+
+  return (STATUS[color]) || color.toUpperCase();
+};
+
+Jenkins.prototype._statusByName = function (opts, data) {
+  const STATUS = [&#039;FAIL&#039;, &#039;WARN&#039;, &#039;ABORTED&#039;, &#039;OK&#039;];
+
+  if (opts.jobName) {
+    data = data.filter(function (item) {
+      return item.name === opts.jobName;
+    });
+  }
+
+  var uniq = _.uniq(_.pluck(data, &#039;status&#039;)),
+    status = null;
+  
+  STATUS.some(function (item) {
+    if (uniq.indexOf(item) !== -1) {
+      status = item;
+      return true;
+    }
+  });
+
+  return status;
+};
+
+module.exports = Jenkins;</textarea>
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <p>.</p>
+  </div>
+</footer>
+
+<script type="text/html" id="complexity-popover-template">
+  <div class="complexity-notice">
+    Complexity : {{ complexity.cyclomatic }} <br>
+    Length : {{ complexity.halstead.length }} <br>
+    Difficulty : {{ complexity.halstead.difficulty.toFixed(2) }} <br>
+    Est # bugs : {{ complexity.halstead.bugs.toFixed(2) }}<br>
+  </div>
+</script>
+
+<script type="text/javascript" src="../../assets/scripts/bundles/core-bundle.js"></script>
+<script type="text/javascript" src="../../assets/scripts/bundles/codemirror.js"></script>
+<script type="text/javascript" src="../../assets/scripts/codemirror.markpopovertext.js"></script>
+<script type="text/javascript" src="report.js"></script>
+<script type="text/javascript" src="report.history.js"></script>
+<script type="text/javascript" src="../../assets/scripts/plato-file.js"></script>
+</body>
+</html>
